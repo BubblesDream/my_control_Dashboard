@@ -1,0 +1,316 @@
+<!-- 原型V2 -->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hush 控制中心 - V2</title>
+    <script src="https://unpkg.com/buttplug@3.0.0/dist/web/buttplug.min.js"></script>
+    <style>
+        :root { --primary: #0e639c; --bg: #1e1e1e; --panel: #2d2d2d; --text: #d4d4d4; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; max-width: 800px; margin: 0 auto; }
+        .panel { background-color: var(--panel); padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h2, h3 { margin-top: 0; color: #fff; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        
+        .input-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        input[type="text"], input[type="number"], select { padding: 10px; border-radius: 4px; border: 1px solid #555; background: #111; color: #fff; flex-grow: 1; }
+        input[type="number"] { flex-grow: 0; width: 80px; }
+        
+        button { background-color: var(--primary); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover:not(:disabled) { filter: brightness(1.2); }
+        button:disabled { background-color: #555; cursor: not-allowed; opacity: 0.7; }
+        .btn-stop { background-color: #d84b2a; }
+        
+        /* 網格佈局供模式按鈕使用 */
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        
+        #logBox { background-color: #000; padding: 15px; border-radius: 4px; height: 200px; overflow-y: auto; font-family: monospace; line-height: 1.4; font-size: 13px;}
+    </style>
+</head>
+<body>
+
+    <h2>Hush 控制中心</h2>
+
+    <div class="panel">
+        <h3>1. 連線設定</h3>
+        <div class="input-group">
+            <label>伺服器位址：</label>
+            <input type="text" id="wsUrl" value="ws://192.168.1.107:12345">
+            <button id="connectBtn" onclick="startConnect()">連線</button>
+        </div>
+        <div class="input-group">
+            <label>可用裝置清單：</label>
+            <select id="deviceSelect" disabled>
+                <option value="">請先連線以取得裝置...</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>2. 自訂單次操作</h3>
+        <div class="input-group">
+            <label>強度 (1-100%)：</label>
+            <input type="number" id="customInt" min="1" max="100" value="50">
+            <label>時間 (秒)：</label>
+            <input type="number" id="customDur" min="1" max="60" value="3">
+            <button class="action-btn" onclick="playCustom()" disabled>🚀 發送單次震動</button>
+            <button class="btn-stop action-btn" onclick="stopDevice()" disabled>⏹ 緊急停止</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>3. 預設模式 (短於 10 秒)</h3>
+        <div class="grid-container">
+            <button class="action-btn" onclick="runPattern(patterns.pulse)" disabled>脈搏 (Pulse)</button>
+            <button class="action-btn" onclick="runPattern(patterns.heartbeat)" disabled>心跳 (Heartbeat)</button>
+            <button class="action-btn" onclick="runPattern(patterns.wave)" disabled>海浪 (Wave)</button>
+            <button class="action-btn" onclick="runPattern(patterns.rampUp)" disabled>快速漸強 (Ramp Up)</button>
+            <button class="action-btn" onclick="runPattern(patterns.tease)" disabled>挑逗 (Tease)</button>
+            <button class="action-btn" onclick="runPattern(patterns.stutter)" disabled>顫抖 (Stutter)</button>
+            <button class="action-btn" onclick="runPattern(patterns.sos)" disabled>求救 (SOS)</button>
+            <button class="action-btn" onclick="runPattern(patterns.climax)" disabled>三段爬升 (Climax)</button>
+            <button class="action-btn" onclick="runPattern(patterns.sigh)" disabled>嘆息漸弱 (Sigh)</button>
+            <button class="action-btn" onclick="runPattern(patterns.random)" disabled>隨機 (Random)</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>4. 積木堆疊測試 (未來擴充預覽)</h3>
+        <p style="font-size: 14px; color: #aaa; margin-top:0;">執行：震3秒(10%) + 停3秒 + 震10秒(70%) + 漸強10秒(10~50%)</p>
+        <button class="action-btn" style="width: 100%;" onclick="runDemoSequence()" disabled>▶ 執行自訂複合序列 (26秒)</button>
+    </div>
+
+    <div id="logBox"></div>
+
+    <script>
+        const log = (msg) => {
+            const box = document.getElementById('logBox');
+            box.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}<br>`;
+            box.scrollTop = box.scrollHeight;
+        };
+
+        let client = null;
+        let deviceMap = new Map(); // 用來儲存所有連線的玩具 { index: deviceObject }
+        let isPlaying = false; // 鎖定狀態，防止指令衝突
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        // 1. 連線與裝置管理邏輯
+        async function startConnect() {
+            const btn = document.getElementById('connectBtn');
+            const wsUrl = document.getElementById('wsUrl').value;
+            btn.disabled = true;
+
+            try {
+                client = new Buttplug.ButtplugClient("Web Platform V2");
+                
+                // 裝置連線事件
+                client.addListener("deviceadded", (device) => {
+                    log(`🎉 偵測到設備：${device.name}`);
+                    deviceMap.set(device.index, device);
+                    updateDeviceDropdown();
+                    enableControls(true);
+                });
+
+                // 裝置斷線事件
+                client.addListener("deviceremoved", (device) => {
+                    log(`❌ 設備斷線：${device.name}`);
+                    deviceMap.delete(device.index);
+                    updateDeviceDropdown();
+                    if (deviceMap.size === 0) enableControls(false);
+                });
+
+                log(`連線中：${wsUrl}...`);
+                const connector = new Buttplug.ButtplugBrowserWebsocketClientConnector(wsUrl);
+                await client.connect(connector);
+                log("✅ 連線成功！等待裝置清單...");
+                btn.innerText = "已連線";
+
+            } catch (error) {
+                log(`連線失敗：${error.message}`);
+                btn.disabled = false;
+            }
+        }
+
+        // 更新下拉選單
+        function updateDeviceDropdown() {
+            const select = document.getElementById('deviceSelect');
+            select.innerHTML = '';
+            if (deviceMap.size === 0) {
+                select.innerHTML = '<option value="">無可用裝置</option>';
+                select.disabled = true;
+                return;
+            }
+            select.disabled = false;
+            deviceMap.forEach((device, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.text = `${device.name} (ID: ${index})`;
+                select.appendChild(option);
+            });
+        }
+
+        // 解鎖/鎖定操作按鈕
+        function enableControls(enable) {
+            const btns = document.querySelectorAll('.action-btn');
+            btns.forEach(b => b.disabled = !enable);
+        }
+
+        // 取得目前選取的裝置
+        function getSelectedDevice() {
+            const select = document.getElementById('deviceSelect');
+            return deviceMap.get(parseInt(select.value));
+        }
+
+        // 緊急停止
+        async function stopDevice() {
+            const device = getSelectedDevice();
+            if (device) await device.vibrate(0);
+            isPlaying = false;
+            log("⏹ 已強制停止。");
+        }
+
+        // 2. 自訂單次操作
+        async function playCustom() {
+            if (isPlaying) return log("⚠️ 有其他模式執行中，請先停止。");
+            const device = getSelectedDevice();
+            const intensity = parseInt(document.getElementById('customInt').value) / 100;
+            const durationMs = parseInt(document.getElementById('customDur').value) * 1000;
+            
+            log(`▶ 執行單次：強度 ${intensity * 100}%，時間 ${durationMs/1000}s`);
+            await executeSequence(device, [{ type: 'vibrate', intensity: intensity, duration: durationMs }]);
+        }
+
+        // 🌟 核心引擎：序列執行器 (Sequence Engine)
+        // 負責解析「積木」陣列並發送訊號
+        async function executeSequence(device, sequence) {
+            isPlaying = true;
+            try {
+                for (let block of sequence) {
+                    if (!isPlaying) break; // 如果被緊急停止打斷，則跳出迴圈
+
+                    if (block.type === 'vibrate') {
+                        await device.vibrate(block.intensity);
+                        await sleep(block.duration);
+                    } 
+                    else if (block.type === 'stop') {
+                        await device.vibrate(0);
+                        await sleep(block.duration);
+                    } 
+                    else if (block.type === 'ramp') {
+                        // 處理漸強/漸弱：切分為 20 個小步驟來平滑過渡
+                        const steps = 20;
+                        const stepTime = block.duration / steps;
+                        const stepIntensity = (block.end - block.start) / steps;
+                        
+                        for (let i = 0; i <= steps; i++) {
+                            if (!isPlaying) break;
+                            await device.vibrate(block.start + (stepIntensity * i));
+                            await sleep(stepTime);
+                        }
+                    }
+                }
+            } catch (err) {
+                log(`執行發生錯誤：${err.message}`);
+            } finally {
+                // 確保序列結束後玩具會停下來
+                if (device) await device.vibrate(0);
+                isPlaying = false;
+            }
+        }
+
+        // 執行外部傳入的 Pattern
+        async function runPattern(patternBlocks) {
+            if (isPlaying) return log("⚠️ 有其他模式執行中，請先停止。");
+            const device = getSelectedDevice();
+            log(`▶ 開始執行預設模式...`);
+            await executeSequence(device, patternBlocks);
+            log(`⏹ 模式執行完畢。`);
+        }
+
+        // 3. 預設模式資料庫 (積木設計)
+        const patterns = {
+            pulse: [ // 0.5s 開, 0.5s 關 x 3 = 3s
+                { type:'vibrate', intensity:0.5, duration:500 }, { type:'stop', duration:500 },
+                { type:'vibrate', intensity:0.5, duration:500 }, { type:'stop', duration:500 },
+                { type:'vibrate', intensity:0.5, duration:500 }, { type:'stop', duration:500 }
+            ],
+            heartbeat: [ // 碰、碰... 碰、碰... = 3.6s
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:600 },
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:600 },
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:200 }, { type:'stop', duration:600 }
+            ],
+            wave: [ // 0->100->0 柔和海浪 = 4s
+                { type:'ramp', start:0.0, end:1.0, duration:2000 },
+                { type:'ramp', start:1.0, end:0.0, duration:2000 }
+            ],
+            rampUp: [ // 0->100 快速漸強 = 3s
+                { type:'ramp', start:0.0, end:1.0, duration:3000 }
+            ],
+            tease: [ // 弱->突強->弱 = 5s
+                { type:'vibrate', intensity:0.1, duration:2000 },
+                { type:'vibrate', intensity:1.0, duration:1000 },
+                { type:'vibrate', intensity:0.1, duration:2000 }
+            ],
+            stutter: [ // 顫抖，連續極短觸發 = ~3s
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 },
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 },
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 },
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 },
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 },
+                { type:'vibrate', intensity:1.0, duration:100 }, { type:'stop', duration:100 }
+            ],
+            sos: [ // 三短、三長、三短
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:500 },
+                { type:'vibrate', intensity:1.0, duration:800 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:1.0, duration:800 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:1.0, duration:800 }, { type:'stop', duration:500 },
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:200 },
+                { type:'vibrate', intensity:0.8, duration:300 }, { type:'stop', duration:200 }
+            ],
+            climax: [ // 階段性增強 = 9s
+                { type:'vibrate', intensity:0.3, duration:3000 },
+                { type:'vibrate', intensity:0.6, duration:3000 },
+                { type:'vibrate', intensity:1.0, duration:3000 }
+            ],
+            sigh: [ // 突強然後長嘆息 = 6s
+                { type:'vibrate', intensity:1.0, duration:1000 },
+                { type:'ramp', start:1.0, end:0.0, duration:5000 }
+            ],
+            random: [ // 隨機強弱變化
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 },
+                { type:'vibrate', intensity: Math.random(), duration: 500 }
+            ]
+        };
+
+        // 4. 展示未來的積木組合能力
+        async function runDemoSequence() {
+            if (isPlaying) return log("⚠️ 有其他模式執行中，請先停止。");
+            const device = getSelectedDevice();
+            
+            // 完美對應您的需求：震3秒(10%)+停3秒+震10秒(70%)+逐漸增強10秒(10~50%)
+            const customBlockSequence = [
+                { type: 'vibrate', intensity: 0.1, duration: 3000 },
+                { type: 'stop', duration: 3000 },
+                { type: 'vibrate', intensity: 0.7, duration: 10000 },
+                { type: 'ramp', start: 0.1, end: 0.5, duration: 10000 }
+            ];
+
+            log("▶ 開始執行【複合積木序列】...");
+            await executeSequence(device, customBlockSequence);
+            log("⏹ 複合序列執行完畢。");
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!-- 原型V1 -->
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hush 絕對防禦除錯版</title>
+    <script src="https://cdn.jsdelivr.net/npm/buttplug@3.0.0/dist/web/buttplug.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #1e1e1e; color: #fff; padding: 20px; max-width: 600px; margin: 0 auto; }
+        button { background-color: #0e639c; color: white; border: none; padding: 15px; font-size: 16px; margin-bottom: 10px; width: 100%; cursor: pointer; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        .btn-test { background-color: #d84b2a; }
+        #logBox { background-color: #000; padding: 15px; border: 1px solid #555; height: 350px; overflow-y: auto; font-family: monospace; line-height: 1.5; margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+    <h2>Hush 絕對防禦除錯面板</h2>
+    <p>目標 IP：192.168.1.107:12345</p>
+
+    <button class="btn-test" onclick="testClick()">0. 先點我！測試 JavaScript 是否活著</button>
+    <button id="connectBtn" onclick="startConnect()">1. 連線至手機端 Intiface</button>
+    <button id="playBtn" onclick="startVibrate()" disabled>2. 執行震動</button>
+
+    <div id="logBox"></div>
+
+    <script>
+        // 1. 最堅固的 Log 函數，放在最前面
+        function log(msg) {
+            const box = document.getElementById('logBox');
+            const time = new Date().toLocaleTimeString();
+            const logText = `[${time}] ${msg}`;
+            
+            if (box) {
+                box.innerHTML += logText + "<br>";
+                box.scrollTop = box.scrollHeight;
+            }
+            console.log(logText);
+        }
+
+        // 網頁一載入就印出這行
+        window.onload = function() {
+            log("✅ 網頁與 JavaScript 載入成功！");
+            if (typeof Buttplug === 'undefined') {
+                log("❌ 警告：Buttplug SDK 下載失敗，請檢查網路。");
+            } else {
+                log("✅ Buttplug SDK 準備就緒。");
+            }
+        };
+
+        // 0. 測試按鈕邏輯 (確保按鈕有反應)
+        function testClick() {
+            alert("恭喜！瀏覽器沒有卡住，JavaScript 正常運作中！");
+            log("🔘 點擊了【測試按鈕】");
+        }
+
+        let client = null;
+        let hushDevice = null;
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        // 1. 連線按鈕邏輯
+        async function startConnect() {
+            log("🔘 點擊了【連線按鈕】");
+            document.getElementById('connectBtn').disabled = true;
+
+            try {
+                if (typeof Buttplug === 'undefined') {
+                    throw new Error("Buttplug 找不到，請確認上面 SDK 載入狀態。");
+                }
+
+                log("⏳ 準備宣告連線名稱：Web Control Platform");
+                // 這裡就是您提到的「程式名稱」，Intiface 會顯示這個字串
+                client = new Buttplug.ButtplugClient("Web Control Platform");
+
+                log("⏳ 正在綁定設備監聽器...");
+                client.addListener("deviceadded", async (device) => {
+                    log(`🎉 偵測到設備連線：${device.name}`);
+                    hushDevice = device;
+                    document.getElementById('playBtn').disabled = false;
+                    log(`✅ 震動按鈕已解鎖！`);
+                });
+
+                log("⏳ 準備向 192.168.1.107 發起 WebSocket 敲門...");
+                const connector = new Buttplug.ButtplugBrowserWebsocketClientConnector("ws://192.168.1.107:12345");
+                
+                log("⏳ 等待伺服器回應 (若卡在此處代表被防火牆阻擋或 IP 錯誤)...");
+                await client.connect(connector);
+                
+                log("✅ WebSocket 連線大成功！請看手機的 Intiface，現在應該會顯示 Web Control Platform 了。");
+
+            } catch (error) {
+                log(`❌ 連線發生錯誤：${error.message}`);
+                document.getElementById('connectBtn').disabled = false;
+            }
+        }
+
+        // 2. 震動按鈕邏輯
+        async function startVibrate() {
+            if (!hushDevice) return;
+            log("🔘 點擊了【執行震動】");
+            document.getElementById('playBtn').disabled = true;
+
+            try {
+                log("▶ 發送指令：震動 10% (3秒)");
+                await hushDevice.vibrate(0.1);
+                await sleep(3000);
+
+                log("⏸ 發送指令：停止 (3秒)");
+                await hushDevice.vibrate(0.0);
+                await sleep(3000);
+
+                log("▶ 發送指令：震動 50% (3秒)");
+                await hushDevice.vibrate(0.5);
+                await sleep(3000);
+
+                log("⏹ 序列結束：停止");
+                await hushDevice.vibrate(0.0);
+            } catch (error) {
+                log(`❌ 震動發生錯誤：${error.message}`);
+            } finally {
+                document.getElementById('playBtn').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
