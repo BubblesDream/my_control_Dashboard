@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hush 控制中心 - 模組化版</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/buttplug@3.0.0/dist/web/buttplug.min.js"></script>
+    <script src="patterns.js"></script>
+    <script src="app.js" defer></script>
+    <script src="hr-module.js" defer></script>
+</head>
+
+<body>
+    <h2>Hush 控制中心</h2>
+
+    <div class="panel">
+        <h3>1. 連線設定</h3>
+        <div class="input-group">
+            <label>伺服器：</label>
+            <input type="text" id="wsUrl" value="ws://192.168.1.107:12345">
+            <button id="connectBtn">連線</button>
+            <button id="disconnectBtn" class="btn-stop" disabled>中斷連線</button>
+        </div>
+        <div class="input-group">
+            <label>可用裝置：</label>
+            <select id="deviceSelect" disabled>
+                <option value="">請先連線...</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>2. 自訂單次操作</h3>
+        <div class="input-group">
+            <label>強度 (1-100%)：</label>
+            <input type="number" id="customInt" min="1" max="100" value="50">
+            <label>時間 (秒)：</label>
+            <input type="number" id="customDur" min="1" max="60" value="3">
+            <button id="customPlayBtn" class="action-btn" disabled>🚀 單次震動</button>
+            <button id="stopBtn" class="btn-stop action-btn" disabled>⏹ 強制停止</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>3. 預設模式</h3>
+        <div class="grid-container" id="patternButtons">
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>4. 積木堆疊測試</h3>
+        <p class="hint">震3秒(10%) + 停3秒 + 震10秒(70%) + 漸強10秒(10~50%)</p>
+        <button id="demoBtn" class="action-btn" style="width: 100%;" disabled>▶ 執行複合序列 (26秒)</button>
+    </div>
+    <div class="panel" id="hrPanel">
+        <h3 style="color: #ff4d4d;">5. 💖 心率連動自動控制 (Web Bluetooth)</h3>
+        <div class="input-group">
+            <button id="connectHRBtn" class="action-btn" style="background-color: #ff4d4d;">🔗 連接藍牙心率設備</button>
+            <span id="hrStatus" style="margin-left: 10px;">狀態：未連線</span>
+            <span id="currentBPM" style="font-size: 24px; font-weight: bold; color: #ff4d4d; margin-left: auto;">--
+                BPM</span>
+        </div>
+
+        <div style="background-color: #222; padding: 15px; border-radius: 6px; margin-top: 15px;">
+            <div class="input-group">
+                <label style="color: #ff9999;">🚨 停止閾值：心率大於等於</label>
+                <input type="number" id="hrHigh" value="90" style="width: 70px;"> BPM 時，馬上停止。
+            </div>
+            <div class="input-group">
+                <label style="color: #99ff99;">✅ 恢復閾值：心率低於等於</label>
+                <input type="number" id="hrLow" value="85" style="width: 70px;"> BPM，
+                <label>並維持</label>
+                <input type="number" id="hrRecoveryTime" value="60" style="width: 70px;"> 秒後恢復震動。
+            </div>
+
+            <div class="input-group" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 15px;">
+                <label style="font-weight: bold; color: #fff;">啟動自動控制：</label>
+                <input type="checkbox" id="hrAutoToggle"
+                    style="transform: scale(1.5); margin-left: 10px; cursor: pointer;">
+
+                <label style="margin-left: 20px;">持續執行時間：</label>
+                <input type="number" id="autoSessionMins" value="5" style="width: 60px;"> 分鐘
+
+                <span id="sessionCountdown" style="color: #4af626; font-weight: bold; margin-left: 15px;"></span>
+            </div>
+        </div>
+    </div>
+    <div id="logBox"></div>
+</body>
+
+</html>
